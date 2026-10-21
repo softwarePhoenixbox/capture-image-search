@@ -44,7 +44,7 @@ export default defineBackground(() => {
         },
       ],
     })
-    .catch((err) => console.error('[reverse-search] DNR', id, err));
+    .catch((err) => console.error('[search-image] DNR', id, err));
 
   // Clic en el icono o Alt+Shift+S → inyecta (o cierra) el selector
   browser.action.onClicked.addListener(async (tab) => {
@@ -55,7 +55,9 @@ export default defineBackground(() => {
         files: ['/content-scripts/content.js'],
       });
     } catch (err) {
-      console.warn('[reverse-search] No se puede usar en esta página', err);
+      // Visible sin abrir la consola: "!" rojo en el icono + el error en su tooltip
+      console.warn('[search-image] No se pudo inyectar el selector', err);
+      await flagError(tab.id, `No se pudo usar aquí: ${String(err).slice(0, 180)}`);
     }
   });
 
@@ -68,7 +70,7 @@ export default defineBackground(() => {
       .open({ tabId: tab.id! })
       .then(() => true)
       .catch((err) => {
-        console.warn('[reverse-search] No se pudo abrir el panel lateral', err);
+        console.warn('[search-image] No se pudo abrir el panel lateral', err);
         return false;
       });
 
@@ -81,12 +83,22 @@ export default defineBackground(() => {
         sendResponse({ ok: true });
       })
       .catch((err) => {
-        console.error('[reverse-search]', err);
+        console.error('[search-image]', err);
         sendResponse({ ok: false });
       });
     return true; // respuesta asíncrona
   });
 });
+
+async function flagError(tabId: number, title: string) {
+  await browser.action.setBadgeBackgroundColor({ tabId, color: '#d93025' });
+  await browser.action.setBadgeText({ tabId, text: '!' });
+  await browser.action.setTitle({ tabId, title });
+  setTimeout(() => {
+    browser.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+    browser.action.setTitle({ tabId, title: 'Buscar por imagen (Alt+Shift+S)' }).catch(() => {});
+  }, 8000);
+}
 
 async function handleRegion(windowId: number, rect: Rect, viewportWidth: number) {
   const dataUrl = await browser.tabs.captureVisibleTab(windowId, { format: 'png' });

@@ -1,8 +1,8 @@
 {
-  "name": "reverse-search",
+  "name": "search-image",
   "description": "Selecciona una región de la pantalla y búscala en Yandex (Google Images después)",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "dev": "wxt",

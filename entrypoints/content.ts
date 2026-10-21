@@ -18,8 +18,13 @@ const DIM = 'rgba(0,0,0,0.5)';
 
 function toggle() {
   const w = window as unknown as { __rsCleanup?: () => void };
-  if (w.__rsCleanup) {
-    w.__rsCleanup();
+  // El DOM es la fuente de verdad: si el overlay existe se cierra; si no, se abre.
+  // (Un __rsCleanup viejo de una extensión recargada no debe bloquear el primer clic.)
+  const existing = document.getElementById(ROOT_ID);
+  w.__rsCleanup?.();
+  delete w.__rsCleanup;
+  if (existing) {
+    existing.remove();
     return;
   }
   start(w);
@@ -61,19 +66,32 @@ function start(w: { __rsCleanup?: () => void }) {
     '<span>Selecciona cualquier texto o imagen para buscar con Yandex</span>' +
     '<span style="width:20px;height:20px;border:1.5px solid #1b1b1f;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:600">?</span>';
 
-  // Recuadro: hueco claro + borde degradado + esquinas blancas
+  // Recuadro: hueco claro (el box-shadow oscurece todo lo demás) + borde degradado + esquinas blancas
   const box = el('div', {
     position: 'absolute',
     display: 'none',
     boxSizing: 'border-box',
     borderRadius: '14px',
-    border: '3px solid transparent',
-    background:
-      'linear-gradient(transparent, transparent) padding-box, ' +
-      'linear-gradient(90deg,#ea4335,#fbbc05,#34a853,#4285f4) border-box',
     boxShadow: `0 0 0 100vmax ${DIM}`,
     pointerEvents: 'none',
   });
+
+  // Anillo degradado: solo el borde de 3px (máscara que recorta el interior)
+  const ring = el('div', {
+    position: 'absolute',
+    inset: '0',
+    boxSizing: 'border-box',
+    borderRadius: '14px',
+    padding: '3px',
+    background: 'linear-gradient(90deg,#ea4335,#fbbc05,#34a853,#4285f4)',
+  });
+  const MASK = 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)';
+  ring.style.setProperty('-webkit-mask', MASK);
+  ring.style.setProperty('-webkit-mask-composite', 'xor');
+  ring.style.setProperty('mask', MASK);
+  ring.style.setProperty('mask-composite', 'exclude');
+  box.appendChild(ring);
+
   for (const c of ['tl', 'tr', 'bl', 'br'] as const) box.appendChild(corner(c));
 
   root.append(box, toast);
@@ -201,7 +219,7 @@ function start(w: { __rsCleanup?: () => void }) {
         viewportWidth: window.innerWidth,
       });
     } catch (err) {
-      console.error('[reverse-search]', err);
+      console.error('[search-image]', err);
     } finally {
       root.style.visibility = 'visible';
     }

@@ -44,7 +44,7 @@ async function searchYandex(blob: Blob) {
       credentials: 'include',
     });
     const text = await res.text();
-    console.log('[reverse-search] Yandex', res.status, text.slice(0, 500));
+    console.log('[search-image] Yandex', res.status, text.slice(0, 500));
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
 
     const data = JSON.parse(text);
@@ -56,7 +56,7 @@ async function searchYandex(blob: Blob) {
 
     location.replace(target);
   } catch (err) {
-    console.error('[reverse-search] fetch falló, usando formulario', err);
+    console.error('[search-image] fetch falló, usando formulario', err);
     detailEl.textContent = String(err);
     statusEl.textContent = 'Reintentando con formulario…';
     submitForm(blob);
