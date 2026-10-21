@@ -1,0 +1,18 @@
+{
+  "name": "reverse-search",
+  "description": "Selecciona una región de la pantalla y búscala en Yandex (Google Images después)",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "wxt": "^0.20.0"
+  }
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yandex</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #202124; color: #e8eaed; font-family: system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; }
+      header { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; flex: none; }
+      header b { font-size: 15px; letter-spacing: 0.2px; }
+      header .sp { flex: 1; }
+      header button { background: none; border: 0; color: #9aa0a6; cursor: pointer; font-size: 16px; padding: 6px; border-radius: 6px; }
+      header button:hover { background: #3c4043; color: #e8eaed; }
+      #status { padding: 24px 16px; color: #9aa0a6; font-size: 14px; }
+      #status.error { color: #f28b82; }
+      #status pre { white-space: pre-wrap; font-size: 11px; opacity: 0.8; }
+      iframe { flex: 1; border: 0; width: 100%; background: #fff; display: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Yandex</b>
+      <span class="sp"></span>
+      <button id="open" title="Abrir en una pestaña" hidden>↗</button>
+    </header>
+    <div id="status">Selecciona una región de la página para buscar.</div>
+    <iframe id="results" name="results" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
