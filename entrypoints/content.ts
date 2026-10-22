@@ -1,25 +1,27 @@
-// Selector estilo Google Lens. Se inyecta al hacer clic en el icono / atajo
-// (registration: 'runtime'); otro clic lo cierra.
+// Selector estilo Google Lens.
+// Al activarse congela la pestaña (captura) y trabaja sobre esa imagen, así el recuadro
+// no se desalinea cuando el panel lateral cambia el ancho de la página.
+// Se inyecta al hacer clic en el icono / atajo (registration: 'runtime'); otro clic lo cierra.
 export default defineContentScript({
   matches: [],
   registration: 'runtime',
   main() {
-    toggle();
+    void toggle();
   },
 });
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Mode = 'none' | 'new' | 'move' | 'tl' | 'tr' | 'bl' | 'br';
+type Guard = { __rsCleanup?: () => void; __rsBusy?: boolean };
 
 const ROOT_ID = '__reverse_search_root__';
-const HANDLE = 20; // radio de agarre de las esquinas
-const MIN = 12; // tamaño mínimo para buscar
+const HANDLE = 20; // radio de agarre de las esquinas (px)
+const MIN = 12; // tamaño mínimo de selección (px)
 const DIM = 'rgba(0,0,0,0.5)';
 
-function toggle() {
-  const w = window as unknown as { __rsCleanup?: () => void };
+async function toggle() {
+  const w = window as unknown as Guard;
   // El DOM es la fuente de verdad: si el overlay existe se cierra; si no, se abre.
-  // (Un __rsCleanup viejo de una extensión recargada no debe bloquear el primer clic.)
   const existing = document.getElementById(ROOT_ID);
   w.__rsCleanup?.();
   delete w.__rsCleanup;
@@ -27,20 +29,48 @@ function toggle() {
     existing.remove();
     return;
   }
-  start(w);
+  if (w.__rsBusy) return;
+  w.__rsBusy = true;
+  try {
+    // Tamaño de la ventana (px CSS) en el momento de congelar: es la referencia 1:1
+    // de lo que el usuario veía, aunque la captura tenga otra proporción por redondeos.
+    const view = { w: window.innerWidth, h: window.innerHeight };
+    // Captura limpia: el overlay todavía no está montado
+    const res = await browser.runtime.sendMessage({ type: 'frame' });
+    if (!res?.dataUrl) throw new Error(res?.error ?? 'sin captura');
+    const bitmap = await createImageBitmap(dataUrlToBlob(res.dataUrl));
+    start(w, bitmap, view);
+  } catch (err) {
+    console.error('[reverse-search]', err);
+    browser.runtime.sendMessage({ type: 'error', message: String(err) }).catch(() => {});
+  } finally {
+    w.__rsBusy = false;
+  }
 }
 
-function start(w: { __rsCleanup?: () => void }) {
+function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }) {
   const root = el('div', {
     position: 'fixed',
     inset: '0',
     zIndex: '2147483647',
     cursor: 'crosshair',
     userSelect: 'none',
-    background: DIM,
+    touchAction: 'none',
+    overflow: 'hidden',
+    background: '#0e0e10', // tapa la página real, que se reacomoda cuando abre el panel
     font: '13px system-ui, sans-serif',
   });
   root.id = ROOT_ID;
+
+  // Página congelada (canvas: no depende del img-src de la CSP de la página)
+  const frame = document.createElement('canvas');
+  frame.width = bmp.width;
+  frame.height = bmp.height;
+  frame.getContext('2d')!.drawImage(bmp, 0, 0);
+  Object.assign(frame.style, { position: 'absolute', display: 'block', pointerEvents: 'none' });
+
+  // Oscurecido general (solo mientras no hay selección)
+  const dim = el('div', { position: 'absolute', background: DIM, pointerEvents: 'none' });
 
   // Aviso superior (igual que Lens)
   const toast = el('div', {
@@ -94,51 +124,101 @@ function start(w: { __rsCleanup?: () => void }) {
 
   for (const c of ['tl', 'tr', 'bl', 'br'] as const) box.appendChild(corner(c));
 
-  root.append(box, toast);
+  root.append(frame, dim, box, toast);
   document.documentElement.appendChild(root);
 
-  let rect: Rect | null = null;
-  let mode: Mode = 'none';
-  let sx = 0;
-  let sy = 0;
-  let orig: Rect | null = null;
+  // --- Geometría -----------------------------------------------------------
+  // La captura se muestra "contain" y centrada dentro de la ventana actual
+  // (al activar ocupa exactamente la ventana, 1:1 con la página).
+  // La selección vive en coordenadas normalizadas (0..1) de la captura, por eso
+  // sobrevive a cualquier cambio de tamaño de la ventana.
+  let ox = 0;
+  let oy = 0;
+  let dw = 1;
+  let dh = 1;
+  let sel: Rect | null = null; // normalizada
 
+  const toPx = (n: Rect): Rect => ({ x: ox + n.x * dw, y: oy + n.y * dh, w: n.w * dw, h: n.h * dh });
+  const fromPx = (r: Rect): Rect => ({
+    x: (r.x - ox) / dw,
+    y: (r.y - oy) / dh,
+    w: r.w / dw,
+    h: r.h / dh,
+  });
+
+  function layout() {
+    const vw = root.clientWidth;
+    const vh = root.clientHeight;
+    const s = Math.min(vw / view.w, vh / view.h); // =1 al activar; <1 si el panel encoge la ventana
+    dw = view.w * s;
+    dh = view.h * s;
+    ox = (vw - dw) / 2;
+    oy = (vh - dh) / 2;
+    for (const n of [frame, dim]) {
+      Object.assign(n.style, {
+        left: `${ox}px`,
+        top: `${oy}px`,
+        width: `${dw}px`,
+        height: `${dh}px`,
+      });
+    }
+  }
+
+  function render() {
+    if (!sel) {
+      box.style.display = 'none';
+      dim.style.display = 'block';
+      return;
+    }
+    const r = toPx(sel);
+    dim.style.display = 'none'; // el oscurecido pasa al box-shadow del recuadro
+    Object.assign(box.style, {
+      display: 'block',
+      left: `${r.x}px`,
+      top: `${r.y}px`,
+      width: `${r.w}px`,
+      height: `${r.h}px`,
+    });
+  }
+
+  const onResize = () => {
+    layout();
+    render();
+  };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') cleanup();
   };
+  window.addEventListener('resize', onResize);
   window.addEventListener('keydown', onKey, true);
+  root.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
 
   function cleanup() {
     root.remove();
+    window.removeEventListener('resize', onResize);
     window.removeEventListener('keydown', onKey, true);
+    bmp.close();
     delete w.__rsCleanup;
   }
   w.__rsCleanup = cleanup;
 
-  function render() {
-    if (!rect) {
-      box.style.display = 'none';
-      root.style.background = DIM;
-      return;
-    }
-    root.style.background = 'transparent'; // el oscurecido pasa al box-shadow
-    Object.assign(box.style, {
-      display: 'block',
-      left: `${rect.x}px`,
-      top: `${rect.y}px`,
-      width: `${rect.w}px`,
-      height: `${rect.h}px`,
-    });
-  }
+  layout();
+  render();
+
+  // --- Interacción ---------------------------------------------------------
+  let mode: Mode = 'none';
+  let sx = 0;
+  let sy = 0;
+  let orig: Rect | null = null; // px
 
   function hit(x: number, y: number): Mode {
-    if (!rect) return 'new';
+    if (!sel) return 'new';
+    const r = toPx(sel);
     const near = (cx: number, cy: number) => Math.hypot(x - cx, y - cy) <= HANDLE;
-    if (near(rect.x, rect.y)) return 'tl';
-    if (near(rect.x + rect.w, rect.y)) return 'tr';
-    if (near(rect.x, rect.y + rect.h)) return 'bl';
-    if (near(rect.x + rect.w, rect.y + rect.h)) return 'br';
-    if (x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h) return 'move';
+    if (near(r.x, r.y)) return 'tl';
+    if (near(r.x + r.w, r.y)) return 'tr';
+    if (near(r.x, r.y + r.h)) return 'bl';
+    if (near(r.x + r.w, r.y + r.h)) return 'br';
+    if (x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) return 'move';
     return 'new';
   }
 
@@ -165,9 +245,13 @@ function start(w: { __rsCleanup?: () => void }) {
     mode = hit(e.clientX, e.clientY);
     sx = e.clientX;
     sy = e.clientY;
-    orig = rect ? { ...rect } : null;
+    orig = sel ? toPx(sel) : null;
     toast.style.display = 'none';
-    if (mode === 'new') rect = { x: sx, y: sy, w: 0, h: 0 };
+    if (mode === 'new') {
+      const cx = clamp(sx, ox, ox + dw);
+      const cy = clamp(sy, oy, oy + dh);
+      sel = fromPx({ x: cx, y: cy, w: 0, h: 0 });
+    }
     render();
   });
 
@@ -176,52 +260,54 @@ function start(w: { __rsCleanup?: () => void }) {
       root.style.cursor = CURSORS[hit(e.clientX, e.clientY)];
       return;
     }
-    const x = e.clientX;
-    const y = e.clientY;
+    const x = clamp(e.clientX, ox, ox + dw);
+    const y = clamp(e.clientY, oy, oy + dh);
+    let r: Rect | null = null;
     if (mode === 'new') {
-      rect = norm(sx, sy, x, y);
+      r = norm(clamp(sx, ox, ox + dw), clamp(sy, oy, oy + dh), x, y);
     } else if (orig && mode === 'move') {
-      rect = {
+      r = {
         ...orig,
-        x: clamp(orig.x + x - sx, 0, window.innerWidth - orig.w),
-        y: clamp(orig.y + y - sy, 0, window.innerHeight - orig.h),
+        x: clamp(orig.x + e.clientX - sx, ox, ox + dw - orig.w),
+        y: clamp(orig.y + e.clientY - sy, oy, oy + dh - orig.h),
       };
     } else if (orig) {
       // esquina arrastrada; la opuesta queda fija
       const fx = mode === 'tl' || mode === 'bl' ? orig.x + orig.w : orig.x;
       const fy = mode === 'tl' || mode === 'tr' ? orig.y + orig.h : orig.y;
-      rect = norm(fx, fy, x, y);
+      r = norm(fx, fy, x, y);
     }
+    if (r) sel = fromPx(r);
     render();
   });
 
   root.addEventListener('pointerup', () => {
     if (mode === 'none') return;
     mode = 'none';
-    if (rect && rect.w >= MIN && rect.h >= MIN) {
-      void search({ ...rect });
+    const px = sel ? toPx(sel) : null;
+    if (px && px.w >= MIN && px.h >= MIN) {
+      void search();
     } else {
-      rect = null;
+      sel = null;
       render();
     }
   });
 
-  // Oculta el overlay para que no salga en la captura, busca, y lo vuelve a mostrar
-  async function search(r: Rect) {
-    root.style.visibility = 'hidden';
-    await new Promise<void>((res) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => res())),
-    );
+  // Recorta de la captura congelada (no de la página en vivo) y la manda al background
+  async function search() {
+    if (!sel) return;
+    const x = clamp(Math.round(sel.x * bmp.width), 0, bmp.width - 1);
+    const y = clamp(Math.round(sel.y * bmp.height), 0, bmp.height - 1);
+    const cw = clamp(Math.round(sel.w * bmp.width), 1, bmp.width - x);
+    const ch = clamp(Math.round(sel.h * bmp.height), 1, bmp.height - y);
+
+    const canvas = new OffscreenCanvas(cw, ch);
+    canvas.getContext('2d')!.drawImage(bmp, x, y, cw, ch, 0, 0, cw, ch);
+    const image = await blobToDataUrl(await canvas.convertToBlob({ type: 'image/png' }));
     try {
-      await browser.runtime.sendMessage({
-        type: 'region',
-        rect: r,
-        viewportWidth: window.innerWidth,
-      });
+      await browser.runtime.sendMessage({ type: 'region', image });
     } catch (err) {
-      console.error('[search-image]', err);
-    } finally {
-      root.style.visibility = 'visible';
+      console.error('[reverse-search]', err);
     }
   }
 }
@@ -234,6 +320,25 @@ function el(tag: string, style: Record<string, string>) {
   const node = document.createElement(tag);
   Object.assign(node.style, style);
   return node;
+}
+
+// base64 → Blob sin fetch(): fetch de data: URLs puede bloquearlo el connect-src de la página
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, b64] = dataUrl.split(',');
+  const mime = /data:([^;]+)/.exec(head)?.[1] ?? 'image/png';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
 }
 
 function corner(pos: 'tl' | 'tr' | 'bl' | 'br') {

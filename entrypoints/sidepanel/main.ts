@@ -36,11 +36,11 @@ async function handle(p: PendingSearch | undefined) {
 
   setStatus('Buscando en Yandex…');
   const blob = await (await fetch(p.image)).blob();
-  if (p.engine === 'yandex') await searchYandex(blob);
+  if (p.engine === 'yandex') await searchYandex(blob, p.id);
 }
 
 // 1) POST JSON → URL de resultados.  2) Si falla, formulario multipart dentro del iframe.
-async function searchYandex(blob: Blob) {
+async function searchYandex(blob: Blob, id: string) {
   try {
     const form = new FormData();
     form.append('upfile', blob, 'image.png');
@@ -56,7 +56,8 @@ async function searchYandex(blob: Blob) {
       credentials: 'include',
     });
     const text = await res.text();
-    console.log('[search-image] Yandex', res.status, text.slice(0, 500));
+    if (id !== lastId) return; // llegó una búsqueda más nueva (ajuste de selección)
+    console.log('[reverse-search] Yandex', res.status, text.slice(0, 500));
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
 
     const data = JSON.parse(text);
@@ -68,8 +69,8 @@ async function searchYandex(blob: Blob) {
 
     showResults(target);
   } catch (err) {
-    console.error('[search-image] fetch falló, usando formulario', err);
-    submitForm(blob);
+    console.error('[reverse-search] fetch falló, usando formulario', err);
+    if (id === lastId) submitForm(blob);
   }
 }
 
