@@ -1,3 +1,6 @@
+import { DEFAULT_SERVICE, type ServiceId } from '../services/types';
+import { SERVICES, isServiceId } from '../services/meta';
+
 // Selector estilo Google Lens.
 // Al activarse congela la pestaña (captura) y trabaja sobre esa imagen, así el recuadro
 // no se desalinea cuando el panel lateral cambia el ancho de la página.
@@ -22,12 +25,15 @@ const DIM = 'rgba(0,0,0,0.5)';
 async function toggle() {
   const w = window as unknown as Guard;
   // El DOM es la fuente de verdad: si el overlay existe se cierra; si no, se abre.
+  const raw = (window as unknown as { __rsService?: string }).__rsService;
+  const service: ServiceId = isServiceId(raw) ? raw : DEFAULT_SERVICE;
   const existing = document.getElementById(ROOT_ID);
   w.__rsCleanup?.();
   delete w.__rsCleanup;
   if (existing) {
     existing.remove();
-    return;
+    // mismo servicio → solo cerraba; otro servicio (p. ej. clic derecho → traducir) → se reabre en ese modo
+    if (existing.dataset.service === service) return;
   }
   if (w.__rsBusy) return;
   w.__rsBusy = true;
@@ -39,7 +45,7 @@ async function toggle() {
     const res = await browser.runtime.sendMessage({ type: 'frame' });
     if (!res?.dataUrl) throw new Error(res?.error ?? 'sin captura');
     const bitmap = await createImageBitmap(dataUrlToBlob(res.dataUrl));
-    start(w, bitmap, view);
+    start(w, bitmap, view, service);
   } catch (err) {
     console.error('[reverse-search]', err);
     browser.runtime.sendMessage({ type: 'error', message: String(err) }).catch(() => {});
@@ -48,7 +54,7 @@ async function toggle() {
   }
 }
 
-function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }) {
+function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }, service: ServiceId) {
   const root = el('div', {
     position: 'fixed',
     inset: '0',
@@ -61,6 +67,7 @@ function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }) {
     font: '13px system-ui, sans-serif',
   });
   root.id = ROOT_ID;
+  root.dataset.service = service;
 
   // Página congelada (canvas: no depende del img-src de la CSP de la página)
   const frame = document.createElement('canvas');
@@ -93,8 +100,10 @@ function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }) {
     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1b1b1f" stroke-width="2" stroke-linecap="round">' +
     '<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/>' +
     '<circle cx="12" cy="12" r="3"/></svg>' +
-    '<span>Selecciona cualquier texto o imagen para buscar con Yandex</span>' +
+    '<span></span>' +
     '<span style="width:20px;height:20px;border:1.5px solid #1b1b1f;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:600">?</span>';
+
+  toast.querySelector('span')!.textContent = SERVICES[service].toast;
 
   // Recuadro: hueco claro (el box-shadow oscurece todo lo demás) + borde degradado + esquinas blancas
   const box = el('div', {
@@ -305,7 +314,7 @@ function start(w: Guard, bmp: ImageBitmap, view: { w: number; h: number }) {
     canvas.getContext('2d')!.drawImage(bmp, x, y, cw, ch, 0, 0, cw, ch);
     const image = await blobToDataUrl(await canvas.convertToBlob({ type: 'image/png' }));
     try {
-      await browser.runtime.sendMessage({ type: 'region', image });
+      await browser.runtime.sendMessage({ type: 'region', image, service });
     } catch (err) {
       console.error('[reverse-search]', err);
     }

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yandex</title>
+    <title>Reverse Search</title>
     <style>
       html, body { margin: 0; height: 100%; background: #202124; color: #e8eaed; font-family: system-ui, sans-serif; }
       body { display: flex; flex-direction: column; }
@@ -12,6 +12,9 @@
       header .sp { flex: 1; }
       header button { background: none; border: 0; color: #9aa0a6; cursor: pointer; font-size: 16px; padding: 6px; border-radius: 6px; }
       header button:hover { background: #3c4043; color: #e8eaed; }
+      #banner { display: flex; align-items: center; gap: 10px; margin: 0 12px 8px; padding: 8px 12px; border-radius: 8px; background: #4a3b12; color: #fde293; font-size: 13px; flex: none; }
+      #banner[hidden] { display: none; }
+      #banner button { margin-left: auto; background: #fde293; color: #202124; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
       #status { padding: 24px 16px; color: #9aa0a6; font-size: 14px; }
       #status.error { color: #f28b82; }
       #status pre { white-space: pre-wrap; font-size: 11px; opacity: 0.8; }
@@ -20,11 +23,12 @@
   </head>
   <body>
     <header>
-      <b>Yandex</b>
+      <b id="title">Yandex</b>
       <span class="sp"></span>
       <button id="open" title="Abrir en una pestaña" hidden>↗</button>
     </header>
-    <div id="status">Selecciona una región de la página para buscar.</div>
+    <div id="banner" hidden></div>
+    <div id="status">Selecciona una región de la página.</div>
     <iframe id="results" name="results" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <script type="module" src="./main.ts"></script>
   </body>
