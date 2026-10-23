@@ -57,8 +57,18 @@ export default defineBackground(() => {
   browser.contextMenus
     .removeAll()
     .then(() => {
+      const groups = new Set<string>();
       for (const [id, m] of Object.entries(SERVICES)) {
-        if (m.menuTitle) browser.contextMenus.create({ id, title: m.menuTitle, contexts: ['action'] });
+        if (!m.menuTitle) continue;
+        let parentId: string | undefined;
+        if (m.menuGroup) {
+          parentId = `group:${m.menuGroup}`;
+          if (!groups.has(parentId)) {
+            groups.add(parentId);
+            browser.contextMenus.create({ id: parentId, title: m.menuGroup, contexts: ['action'] });
+          }
+        }
+        browser.contextMenus.create({ id, parentId, title: m.menuTitle, contexts: ['action'] });
       }
     })
     .catch((err) => console.error('[reverse-search] contextMenus', err));
@@ -67,9 +77,17 @@ export default defineBackground(() => {
     if (tab?.id && isServiceId(info.menuItemId)) void startSelector(tab.id, info.menuItemId);
   });
 
-  // Clic izquierdo o Alt+Shift+S → servicio por defecto (búsqueda inversa)
+  // Clic izquierdo o Alt+Shift+S (_execute_action) → servicio por defecto (búsqueda inversa)
   browser.action.onClicked.addListener((tab) => {
     if (tab.id) void startSelector(tab.id, DEFAULT_SERVICE);
+  });
+
+  // Atajos propios (manifest.commands): el nombre del comando es el id del servicio.
+  // Alt+Shift+D → "yandex-ocr". Un atajo también concede activeTab a la pestaña activa.
+  browser.commands.onCommand.addListener(async (command) => {
+    if (!isServiceId(command)) return;
+    const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id) void startSelector(tab.id, command);
   });
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {

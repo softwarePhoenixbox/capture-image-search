@@ -11,7 +11,12 @@ export default defineConfig({
     commands: {
       _execute_action: {
         suggested_key: { default: 'Alt+Shift+S' },
-        description: 'Seleccionar región y buscar',
+        description: 'Yandex: buscar por imagen',
+      },
+      // El nombre del comando es el id del servicio (ver services/types.ts)
+      'yandex-ocr': {
+        suggested_key: { default: 'Alt+Shift+D' },
+        description: 'Yandex: OCR · traducir imagen',
       },
     },
   },

@@ -7,6 +7,7 @@ export type ServiceMeta = {
   title: string; // título en el panel lateral
   toast: string; // aviso superior del selector
   menuTitle?: string; // si existe: entrada en el menú del clic derecho del icono
+  menuGroup?: string; // entradas con el mismo grupo van juntas en un submenú (p. ej. "Yandex")
 };
 
 /** Trabajo que el background le deja al panel lateral. */
